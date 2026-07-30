@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.venv/
+.testenv/
+build/
+dist/
+*.zip
+VideoScribe-Setup.exe
+dejavu_tmp/
+# генерируются скриптом scripts/prepare_assets.py
+assets/fonts/
+assets/icon.png
+assets/icon.ico
