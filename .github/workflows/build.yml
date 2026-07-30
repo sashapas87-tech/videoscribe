@@ -1,0 +1,77 @@
+name: Build Windows release
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "README.md"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller pillow
+
+      - name: Prepare assets (fonts + icon)
+        run: python scripts/prepare_assets.py
+
+      - name: Build with PyInstaller
+        run: pyinstaller videoscribe.spec --noconfirm --clean
+
+      - name: Smoke check build output
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "dist/VideoScribe/VideoScribe.exe")) { throw "VideoScribe.exe not found" }
+          $size = (Get-ChildItem dist/VideoScribe -Recurse | Measure-Object -Property Length -Sum).Sum
+          "Dist size: {0:N0} MB" -f ($size / 1MB)
+
+      - name: Create portable ZIP
+        shell: pwsh
+        run: Compress-Archive -Path dist/VideoScribe -DestinationPath VideoScribe-Portable-Windows.zip
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup -y --no-progress
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { $iscc = "$env:ProgramFiles\Inno Setup 6\ISCC.exe" }
+          & $iscc /DMyAppVersion=1.0.${{ github.run_number }} installer.iss
+          if (-not (Test-Path "VideoScribe-Setup.exe")) { throw "installer not produced" }
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: VideoScribe v1.0.${{ github.run_number }}
+          body: |
+            **VideoScribe для Windows — готовая программа, Python не нужен.**
+
+            - **VideoScribe-Setup.exe** — установщик (рекомендуется): ярлыки в меню Пуск и на рабочем столе, удаление через «Приложения».
+            - **VideoScribe-Portable-Windows.zip** — портативная версия: распакуйте и запустите `VideoScribe\VideoScribe.exe`.
+
+            При первом запуске SmartScreen может показать предупреждение (программа не подписана сертификатом):
+            нажмите **«Подробнее» → «Выполнить в любом случае»**.
+
+            Примечание: определение спикеров (диаризация) в exe-версию не входит — используйте запуск из исходников (run.bat).
+          files: |
+            VideoScribe-Setup.exe
+            VideoScribe-Portable-Windows.zip
