@@ -11,6 +11,13 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
+# Windows-консоль/CI может быть в cp1252 — печать кириллицы не должна ронять скрипт
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 ROOT = Path(__file__).resolve().parent.parent
 FONTS_DIR = ROOT / "assets" / "fonts"
 DEJAVU_URL = ("https://github.com/dejavu-fonts/dejavu-fonts/releases/download/"
@@ -22,7 +29,10 @@ QUIET = "--quiet" in sys.argv
 
 def log(msg: str) -> None:
     if not QUIET:
-        print(msg)
+        try:
+            print(msg)
+        except UnicodeEncodeError:
+            print(msg.encode("ascii", "replace").decode("ascii"))
 
 
 def ensure_fonts() -> None:
@@ -32,7 +42,8 @@ def ensure_fonts() -> None:
         return
     FONTS_DIR.mkdir(parents=True, exist_ok=True)
     log(f"Скачивание шрифтов DejaVu ({', '.join(missing)})…")
-    data = urllib.request.urlopen(DEJAVU_URL, timeout=120).read()
+    req = urllib.request.Request(DEJAVU_URL, headers={"User-Agent": "VideoScribe-setup"})
+    data = urllib.request.urlopen(req, timeout=120).read()
     with zipfile.ZipFile(io.BytesIO(data)) as z:
         for name in z.namelist():
             base = name.rsplit("/", 1)[-1]
