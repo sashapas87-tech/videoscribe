@@ -10,7 +10,7 @@ hiddenimports = []
 # av/onnxruntime/ctranslate2 обычно подхватываются хуками, но собираем
 # явно (в try) для надёжности на разных версиях.
 for pkg in ["faster_whisper", "imageio_ffmpeg", "docx", "fpdf",
-            "av", "onnxruntime", "ctranslate2"]:
+            "av", "onnxruntime", "ctranslate2", "cryptography"]:
     try:
         d, b, h = collect_all(pkg)
         datas += d
