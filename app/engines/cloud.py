@@ -2,9 +2,19 @@
 
 Длинное аудио автоматически режется на части по паузам (лимит API ~25 МБ),
 результаты склеиваются со смещением таймкодов.
+
+Особенности облачных лимитов, которые учитывает движок:
+- контекстный промпт между частями ограничен провайдером по БАЙТАМ UTF-8
+  (у Groq ~896), поэтому хвост текста режется по байтам, а не по символам;
+- при 429 (превышение квоты) читаем Retry-After / текст ошибки и ждём
+  сброса часовой квоты с отсчётом, вместо того чтобы падать;
+- исчерпание дневного лимита распознаётся сразу и объясняется словами;
+- если ошибка случилась в середине длинной записи, уже распознанные части
+  не пропадают — возвращается частичный результат с пометкой.
 """
 from __future__ import annotations
 
+import re
 import tempfile
 import time
 from pathlib import Path
@@ -33,14 +43,62 @@ PROVIDERS = {
     },
 }
 
-_RETRY_STATUSES = {429, 500, 502, 503, 504}
+# Groq ограничивает контекстный промпт 896 «символами», считая длину в байтах
+# UTF-8: кириллическая буква занимает 2 байта, так что 600 русских символов —
+# это ~1080 байт и ошибка 400. Режем хвост по байтам и с запасом.
+PROMPT_MAX_BYTES = 700
+
+# Максимальное суммарное ожидание сброса лимитов (429) на один кусок аудио.
+# Часовая квота бесплатного тарифа Groq успевает освободиться.
+MAX_RATE_WAIT_SEC = 70 * 60
+
+_WAIT_RE = re.compile(r"try again in\s+(?:(\d+)h)?(?:(\d+)m)?([\d.]+)s", re.IGNORECASE)
+
+
+def trim_prompt_tail(text: str, max_bytes: int = PROMPT_MAX_BYTES) -> str:
+    """Хвост текста не длиннее max_bytes в UTF-8, обрезанный по границе слова.
+
+    Провайдеры считают длину промпта в байтах, а не в символах, поэтому
+    срез вида text[-600:] для кириллицы превышает лимит почти вдвое.
+    """
+    text = " ".join(text.split())
+    raw = text.encode("utf-8")
+    if len(raw) <= max_bytes:
+        return text
+    tail = raw[-max_bytes:].decode("utf-8", errors="ignore")
+    sp = tail.find(" ")
+    if sp != -1:
+        tail = tail[sp + 1:]
+    return tail.strip()
+
+
+def parse_retry_after(resp) -> Optional[float]:
+    """Сколько секунд просит подождать провайдер (заголовок или текст ошибки)."""
+    headers = resp.headers or {}
+    hdr = headers.get("retry-after") or headers.get("Retry-After")
+    if hdr:
+        try:
+            return max(0.0, float(hdr))
+        except (TypeError, ValueError):
+            pass
+    m = _WAIT_RE.search(resp.text or "")
+    if m:
+        h, mi, s = m.group(1), m.group(2), m.group(3)
+        return float(h or 0) * 3600 + float(mi or 0) * 60 + float(s)
+    return None
+
+
+def _is_daily_limit(body: str) -> bool:
+    """Ответ 429 говорит об исчерпании ДНЕВНОЙ квоты (ждать час бессмысленно)."""
+    low = (body or "").lower()
+    return "per day" in low or "(asd)" in low or "(rpd)" in low or "(tpd)" in low
 
 
 def _api_error(provider_label: str, status: int, body: str) -> AppError:
     if status == 401:
         return AppError(f"{provider_label}: неверный API-ключ (401). Проверьте ключ в настройках.")
     if status == 429:
-        return AppError(f"{provider_label}: превышен лимит запросов (429). Подождите и повторите.")
+        return AppError(f"{provider_label}: превышен лимит запросов (429). Подождите и повторите.\n{body[:300]}")
     if status == 413:
         return AppError(f"{provider_label}: файл слишком большой (413).")
     return AppError(f"{provider_label}: ошибка API {status}:\n{body[:300]}")
@@ -60,12 +118,33 @@ class CloudEngine(TranscriptionEngine):
 
     # -- HTTP -------------------------------------------------------------
 
+    def _wait_rate_limit(self, seconds: float, cb: EngineCallbacks) -> None:
+        """Подождать сброса квоты, показывая отсчёт и реагируя на отмену."""
+        deadline = time.monotonic() + seconds
+        while True:
+            left = deadline - time.monotonic()
+            if left <= 0:
+                break
+            if cb.is_cancelled():
+                raise JobCancelled()
+            mm, ss = divmod(int(left) + 1, 60)
+            cb.message(f"Достигнут лимит {self.meta['label']} — ждём сброса квоты: {mm:02d}:{ss:02d}")
+            time.sleep(min(1.0, left))
+        cb.message("Лимит снят, продолжаем…")
+
     def _post_audio(self, endpoint: str, mp3_path: str, data: dict,
                     cb: EngineCallbacks) -> dict:
         url = f"{self.meta['base_url']}/{endpoint}"
         headers = {"Authorization": f"Bearer {self.api_key}"}
-        last_err: Optional[Exception] = None
-        for attempt in range(4):
+        label = self.meta["label"]
+
+        net_errors = 0          # сетевые сбои подряд
+        server_retries = 0      # ответы 5xx подряд
+        rate_waited = 0.0       # суммарное ожидание лимитов (429)
+        dropped_words = False   # уже отключили пословные таймкоды
+        dropped_prompt = False  # уже отключили контекстный промпт
+
+        while True:
             if cb.is_cancelled():
                 raise JobCancelled()
             try:
@@ -76,22 +155,60 @@ class CloudEngine(TranscriptionEngine):
                         timeout=900,
                     )
             except requests.RequestException as e:
-                last_err = e
-                time.sleep(2 * (attempt + 1))
+                net_errors += 1
+                if net_errors > 3:
+                    raise AppError(f"Нет соединения с {label}: {e}")
+                time.sleep(2 * net_errors)
                 continue
+
             if resp.status_code == 200:
                 return resp.json()
-            if resp.status_code == 400 and "timestamp_granularities" in resp.text and \
-                    "timestamp_granularities[]" in data:
+
+            body = resp.text or ""
+
+            if resp.status_code == 400:
                 # Провайдер не поддерживает пословные таймкоды — повторяем без них
-                data = {k: v for k, v in data.items() if k != "timestamp_granularities[]"}
-                data["timestamp_granularities[]"] = ["segment"]
+                if not dropped_words and "timestamp_granularities" in body \
+                        and "timestamp_granularities[]" in data:
+                    dropped_words = True
+                    data = {k: v for k, v in data.items() if k != "timestamp_granularities[]"}
+                    data["timestamp_granularities[]"] = ["segment"]
+                    continue
+                # Промпт отклонён (например, слишком длинный) — повторяем без него:
+                # чуть хуже связность на стыке частей, но транскрибация продолжится
+                if not dropped_prompt and "prompt" in data and "prompt" in body.lower():
+                    dropped_prompt = True
+                    data = {k: v for k, v in data.items() if k != "prompt"}
+                    continue
+
+            if resp.status_code == 429:
+                if _is_daily_limit(body):
+                    raise AppError(
+                        f"{label}: исчерпан дневной лимит аудио (429).\n"
+                        "На бесплатном тарифе Groq можно распознать до 8 часов аудио "
+                        "в сутки. Продолжите завтра, подключите платный тариф "
+                        "или выберите локальный движок в настройках."
+                    )
+                wait = parse_retry_after(resp)
+                wait = (wait + 2.0) if wait is not None else 60.0  # небольшой запас
+                if rate_waited + wait > MAX_RATE_WAIT_SEC:
+                    mins = max(1, int(wait // 60))
+                    raise AppError(
+                        f"{label}: превышен лимит запросов (429). Провайдер просит "
+                        f"подождать ещё ~{mins} мин — это слишком долго. "
+                        f"Повторите позже или подключите платный тариф.\n{body[:200]}"
+                    )
+                self._wait_rate_limit(wait, cb)
+                rate_waited += wait
                 continue
-            if resp.status_code in _RETRY_STATUSES and attempt < 3:
-                time.sleep(3 * (attempt + 1))
-                continue
-            raise _api_error(self.meta["label"], resp.status_code, resp.text)
-        raise AppError(f"Нет соединения с {self.meta['label']}: {last_err}")
+
+            if resp.status_code in (500, 502, 503, 504):
+                server_retries += 1
+                if server_retries <= 3:
+                    time.sleep(3 * server_retries)
+                    continue
+
+            raise _api_error(label, resp.status_code, body)
 
     # -- транскрибация ------------------------------------------------------
 
@@ -135,9 +252,24 @@ class CloudEngine(TranscriptionEngine):
                 if task != "translate" and language:
                     data["language"] = language
                 if prev_tail:
-                    data["prompt"] = prev_tail[-600:]
+                    tail = trim_prompt_tail(prev_tail)
+                    if tail:
+                        data["prompt"] = tail
 
-                payload = self._post_audio(endpoint, mp3, data, cb)
+                try:
+                    payload = self._post_audio(endpoint, mp3, data, cb)
+                except AppError as e:
+                    if not segments:
+                        raise
+                    # Не теряем уже распознанное: возвращаем частичный результат
+                    done_min = int(start // 60)
+                    segments.append(Segment(
+                        start=start, end=start,
+                        text=f"⚠ Транскрибация прервана на части {i + 1} из {len(chunks)} "
+                             f"(распознано около {done_min} мин). Причина: {e}",
+                    ))
+                    cb.message("Ошибка облачного API — сохранён частичный результат.")
+                    break
 
                 if not detected_lang:
                     detected_lang = payload.get("language")
