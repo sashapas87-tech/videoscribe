@@ -120,6 +120,19 @@ def extract_wav(src: str, dst: str, progress: ProgressCb = None,
         raise AppError("В файле не найдена аудиодорожка.")
 
 
+def trim_wav(src_wav: str, dst_wav: str, seconds: float) -> None:
+    """Скопировать только первые `seconds` секунд аудио (для пробного режима)."""
+    args = [
+        find_ffmpeg(), "-hide_banner", "-y", "-t", f"{seconds:.3f}", "-i", src_wav,
+        "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le",
+        "-loglevel", "error", dst_wav,
+    ]
+    proc = _run(args)
+    if proc.returncode != 0:
+        tail = "\n".join(proc.stderr.decode("utf-8", "replace").strip().splitlines()[-5:])
+        raise AppError(f"Ошибка обрезки аудио:\n{tail}")
+
+
 def encode_chunk_mp3(src_wav: str, start: float, end: float, dst_mp3: str,
                      bitrate: str = "48k") -> None:
     """Вырезать фрагмент [start, end) из WAV и сжать в MP3 (для облачного API)."""

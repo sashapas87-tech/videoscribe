@@ -20,6 +20,17 @@ def main() -> int:
 
     win = MainWindow()
     win.show()
+
+    # При первом запуске без активации — окно с Machine ID и полем для ключа
+    try:
+        from app import licensing
+        if not licensing.load_status().licensed:
+            from app.gui.license_dialog import LicenseDialog
+            LicenseDialog(win).exec()
+            win._update_license_label()
+    except Exception:
+        pass
+
     return app.exec()
 
 

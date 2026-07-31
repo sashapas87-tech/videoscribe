@@ -6,15 +6,26 @@ import uuid
 from pathlib import Path
 from typing import Optional
 
+from .. import licensing
 from ..config import AppConfig, app_data_dir
 from ..engines.base import EngineCallbacks, TranscriptionEngine
 from ..engines.cloud import CloudEngine
 from ..engines.local_whisper import LocalWhisperEngine
 from . import diarize, ffmpeg_utils, media
-from .models import AppError, JobSpec, Transcript
+from .models import AppError, JobSpec, Segment, Transcript
 
 # Кэш локального движка между заданиями — модель не перезагружается
 _local_engine_cache: Optional[LocalWhisperEngine] = None
+
+
+def _trial_notice_segment() -> Segment:
+    """Заметка в конце транскрипта пробного режима."""
+    return Segment(
+        start=float(licensing.TRIAL_LIMIT_SEC),
+        end=float(licensing.TRIAL_LIMIT_SEC),
+        text="⚠ Пробный режим: распознаны только первые 3 минуты. "
+             "Активируйте программу, чтобы обработать файл целиком.",
+    )
 
 
 def build_engine(cfg: AppConfig) -> TranscriptionEngine:
@@ -56,12 +67,23 @@ def run_job(spec: JobSpec, cfg: AppConfig, cb: EngineCallbacks) -> Transcript:
                                  cancelled=cb.is_cancelled)
         duration = ffmpeg_utils.get_duration(wav)
 
+        # 2b. Пробный режим: без активации распознаём только начало файла
+        trial = not licensing.is_licensed()
+        if trial and duration > licensing.TRIAL_LIMIT_SEC:
+            cb.message(f"Пробный режим: распознаётся только первые "
+                       f"{licensing.TRIAL_LIMIT_SEC // 60} мин. Активируйте программу для полного файла.")
+            trimmed = str(tmp / "audio_trial.wav")
+            ffmpeg_utils.trim_wav(wav, trimmed, licensing.TRIAL_LIMIT_SEC)
+            wav = trimmed
+
         # 3. Транскрибация
         engine = build_engine(cfg)
         task = "translate" if spec.translate_to_en else "transcribe"
         transcript = engine.transcribe(
             wav, language=spec.language or None, task=task, cb=cb,
         )
+        if trial and duration > licensing.TRIAL_LIMIT_SEC:
+            transcript.segments.append(_trial_notice_segment())
 
         # 4. Диаризация (локальная, работает с обоими движками)
         if spec.diarize and transcript.segments:
