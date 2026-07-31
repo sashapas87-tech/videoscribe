@@ -6,3 +6,4 @@ requests>=2.31
 imageio-ffmpeg>=0.5.1
 python-docx>=1.1
 fpdf2>=2.7.9
+cryptography>=42.0
