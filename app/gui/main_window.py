@@ -116,6 +116,7 @@ class MainWindow(QMainWindow):
 
         self._build_ui()
         self._update_engine_label()
+        self._update_license_label()
 
     # ------------------------------------------------------------------ UI
 
@@ -176,6 +177,9 @@ class MainWindow(QMainWindow):
         self.lbl_engine = QLabel()
         self.lbl_engine.setObjectName("engineLabel")
         row2.addWidget(self.lbl_engine)
+        self.btn_license = QPushButton("🔑 Активировать")
+        self.btn_license.clicked.connect(self._open_license)
+        row2.addWidget(self.btn_license)
         btn_settings = QPushButton("⚙ Настройки")
         btn_settings.clicked.connect(self._open_settings)
         row2.addWidget(btn_settings)
@@ -633,6 +637,23 @@ class MainWindow(QMainWindow):
         self._render_selected()
 
     # -------------------------------------------------------------- прочее
+
+    def _open_license(self):
+        from .license_dialog import LicenseDialog
+        dlg = LicenseDialog(self)
+        dlg.exec()
+        self._update_license_label()
+
+    def _update_license_label(self):
+        from .. import licensing
+        info = licensing.load_status()
+        if info.licensed:
+            self.btn_license.setText("🔑 Активировано ✓")
+            self.btn_license.setToolTip(info.status_text)
+        else:
+            self.btn_license.setText("🔑 Активировать")
+            self.btn_license.setToolTip("Пробный режим: первые 3 минуты каждого файла. "
+                                        "Нажмите для активации.")
 
     def _open_settings(self):
         dlg = SettingsDialog(self.cfg, self)
