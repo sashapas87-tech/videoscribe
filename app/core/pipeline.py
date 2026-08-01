@@ -13,6 +13,7 @@ from ..engines.cloud import CloudEngine
 from ..engines.local_whisper import LocalWhisperEngine
 from . import diarize, ffmpeg_utils, media
 from .models import AppError, JobSpec, Segment, Transcript
+from ..i18n import tr
 
 # Кэш локального движка между заданиями — модель не перезагружается
 _local_engine_cache: Optional[LocalWhisperEngine] = None
@@ -23,8 +24,7 @@ def _trial_notice_segment() -> Segment:
     return Segment(
         start=float(licensing.TRIAL_LIMIT_SEC),
         end=float(licensing.TRIAL_LIMIT_SEC),
-        text="⚠ Пробный режим: распознаны только первые 3 минуты. "
-             "Активируйте программу, чтобы обработать файл целиком.",
+        text=tr("⚠ Пробный режим: распознаны только первые 3 минуты. Активируйте программу, чтобы обработать файл целиком."),
     )
 
 
@@ -47,7 +47,7 @@ def run_job(spec: JobSpec, cfg: AppConfig, cb: EngineCallbacks) -> Transcript:
     try:
         # 1. Исходный файл
         if spec.source_type == "url":
-            cb.stage("Скачивание видео")
+            cb.stage(tr("Скачивание видео"))
             cb.progress(0.0)
             src_path, title, _dur = media.download_audio(
                 spec.source, str(tmp),
@@ -56,11 +56,11 @@ def run_job(spec: JobSpec, cfg: AppConfig, cb: EngineCallbacks) -> Transcript:
         else:
             p = Path(spec.source)
             if not p.is_file():
-                raise AppError(f"Файл не найден: {spec.source}")
+                raise AppError(tr("Файл не найден: {}").format(spec.source))
             src_path, title = str(p), p.stem
 
         # 2. Аудиодорожка WAV 16 кГц моно
-        cb.stage("Извлечение аудио")
+        cb.stage(tr("Извлечение аудио"))
         cb.progress(0.0)
         wav = str(tmp / "audio.wav")
         ffmpeg_utils.extract_wav(src_path, wav, progress=cb.progress,
@@ -70,8 +70,7 @@ def run_job(spec: JobSpec, cfg: AppConfig, cb: EngineCallbacks) -> Transcript:
         # 2b. Пробный режим: без активации распознаём только начало файла
         trial = not licensing.is_licensed()
         if trial and duration > licensing.TRIAL_LIMIT_SEC:
-            cb.message(f"Пробный режим: распознаётся только первые "
-                       f"{licensing.TRIAL_LIMIT_SEC // 60} мин. Активируйте программу для полного файла.")
+            cb.message(tr("Пробный режим: распознаётся только первые {} мин. Активируйте программу для полного файла.").format(licensing.TRIAL_LIMIT_SEC // 60))
             trimmed = str(tmp / "audio_trial.wav")
             ffmpeg_utils.trim_wav(wav, trimmed, licensing.TRIAL_LIMIT_SEC)
             wav = trimmed
@@ -96,7 +95,7 @@ def run_job(spec: JobSpec, cfg: AppConfig, cb: EngineCallbacks) -> Transcript:
         transcript.source = spec.source
         if not transcript.duration:
             transcript.duration = duration
-        cb.stage("Готово")
+        cb.stage(tr("Готово"))
         cb.progress(100.0)
         return transcript
     finally:

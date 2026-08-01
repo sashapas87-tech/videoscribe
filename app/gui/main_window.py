@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..config import LANGUAGES, AppConfig
+from ..i18n import tr
 from ..core import diarize
 from ..core.media import VIDEO_AUDIO_EXTS, looks_like_url, safe_filename
 from ..core.models import JobSpec, Transcript
@@ -62,7 +63,7 @@ class JobState:
     spec: JobSpec
     name: str
     status: str = "queued"           # queued/running/done/error/cancelled
-    stage: str = "В очереди"
+    stage: str = field(default_factory=lambda: tr("В очереди"))
     transcript: Optional[Transcript] = None
     error: str = ""
 
@@ -72,22 +73,21 @@ class TranslateDialog(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Перевод транскрипта")
+        self.setWindowTitle(tr("Перевод транскрипта"))
         form = QFormLayout(self)
         self.cmb = QComboBox()
         for label, prompt in TRANSLATE_TARGETS:
-            self.cmb.addItem(label, prompt)
+            self.cmb.addItem(tr(label), prompt)
         self.ed_custom = QLineEdit()
-        self.ed_custom.setPlaceholderText("например: грузинский")
-        form.addRow("Язык:", self.cmb)
-        form.addRow("Или свой:", self.ed_custom)
-        note = QLabel("Перевод выполняется через облачный API (Groq или OpenAI) —\n"
-                      "нужен ключ в Настройках. Таймкоды и спикеры сохраняются.")
+        self.ed_custom.setPlaceholderText(tr("например: грузинский"))
+        form.addRow(tr("Язык:"), self.cmb)
+        form.addRow(tr("Или свой:"), self.ed_custom)
+        note = QLabel(tr("Перевод выполняется через облачный API (Groq или OpenAI) —\nнужен ключ в Настройках. Таймкоды и спикеры сохраняются."))
         note.setObjectName("hint")
         form.addRow(note)
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        bb.button(QDialogButtonBox.Ok).setText("Перевести")
-        bb.button(QDialogButtonBox.Cancel).setText("Отмена")
+        bb.button(QDialogButtonBox.Ok).setText(tr("Перевести"))
+        bb.button(QDialogButtonBox.Cancel).setText(tr("Отмена"))
         bb.accepted.connect(self.accept)
         bb.rejected.connect(self.reject)
         form.addRow(bb)
@@ -109,7 +109,7 @@ class MainWindow(QMainWindow):
         self.worker = None          # PipelineWorker | TranslateWorker
         self._filling_table = False
 
-        self.setWindowTitle("VideoScribe — транскрибация видео и аудио")
+        self.setWindowTitle(tr("VideoScribe — транскрибация видео и аудио"))
         self.setWindowIcon(make_app_icon())
         self.resize(1120, 700)
         self.setAcceptDrops(True)
@@ -130,12 +130,12 @@ class MainWindow(QMainWindow):
         row1 = QHBoxLayout()
         self.ed_url = QLineEdit()
         self.ed_url.setPlaceholderText(
-            "Вставьте ссылку на YouTube (или другой сайт с видео) и нажмите «Транскрибировать»…")
+            tr("Вставьте ссылку на YouTube (или другой сайт с видео) и нажмите «Транскрибировать»…"))
         self.ed_url.returnPressed.connect(self._add_url_job)
-        btn_go = QPushButton("Транскрибировать")
+        btn_go = QPushButton(tr("Транскрибировать"))
         btn_go.setObjectName("primary")
         btn_go.clicked.connect(self._add_url_job)
-        btn_file = QPushButton("Открыть файл…")
+        btn_file = QPushButton(tr("Открыть файл…"))
         btn_file.clicked.connect(self._open_files)
         row1.addWidget(self.ed_url, 1)
         row1.addWidget(btn_go)
@@ -144,43 +144,42 @@ class MainWindow(QMainWindow):
 
         # -- строка опций
         row2 = QHBoxLayout()
-        row2.addWidget(QLabel("Язык:"))
+        row2.addWidget(QLabel(tr("Язык:")))
         self.cmb_lang = QComboBox()
         for name, code in LANGUAGES:
-            self.cmb_lang.addItem(name, code)
+            self.cmb_lang.addItem(tr(name), code)
         i = self.cmb_lang.findData(self.cfg.default_language)
         self.cmb_lang.setCurrentIndex(max(0, i))
         row2.addWidget(self.cmb_lang)
 
-        self.chk_diarize = QCheckBox("Определять спикеров")
+        self.chk_diarize = QCheckBox(tr("Определять спикеров"))
         self.chk_diarize.setChecked(self.cfg.last_diarize and diarize.is_available())
         self.chk_diarize.setToolTip(
-            "Разметка «кто говорит» (pyannote). Требует установленных пакетов "
-            "диаризации и токена Hugging Face в Настройках.")
+            tr("Разметка «кто говорит» (pyannote). Требует установленных пакетов диаризации и токена Hugging Face в Настройках."))
         row2.addWidget(self.chk_diarize)
 
         self.cmb_speakers = QComboBox()
-        self.cmb_speakers.addItem("Спикеров: авто", None)
+        self.cmb_speakers.addItem(tr("Спикеров: авто"), None)
         for n in range(2, 9):
-            self.cmb_speakers.addItem(f"Спикеров: {n}", n)
+            self.cmb_speakers.addItem(tr("Спикеров: {}").format(n), n)
         self.cmb_speakers.setEnabled(self.chk_diarize.isChecked())
         self.chk_diarize.toggled.connect(self.cmb_speakers.setEnabled)
         row2.addWidget(self.cmb_speakers)
 
-        self.chk_translate_en = QCheckBox("Сразу перевести на английский")
+        self.chk_translate_en = QCheckBox(tr("Сразу перевести на английский"))
         self.chk_translate_en.setChecked(self.cfg.last_translate_en)
         self.chk_translate_en.setToolTip(
-            "Встроенный режим Whisper: распознать и перевести на английский за один проход.")
+            tr("Встроенный режим Whisper: распознать и перевести на английский за один проход."))
         row2.addWidget(self.chk_translate_en)
 
         row2.addStretch(1)
         self.lbl_engine = QLabel()
         self.lbl_engine.setObjectName("engineLabel")
         row2.addWidget(self.lbl_engine)
-        self.btn_license = QPushButton("🔑 Активировать")
+        self.btn_license = QPushButton(tr("🔑 Активировать"))
         self.btn_license.clicked.connect(self._open_license)
         row2.addWidget(self.btn_license)
-        btn_settings = QPushButton("⚙ Настройки")
+        btn_settings = QPushButton(tr("⚙ Настройки"))
         btn_settings.clicked.connect(self._open_settings)
         row2.addWidget(btn_settings)
         root.addLayout(row2)
@@ -203,10 +202,7 @@ class MainWindow(QMainWindow):
         page_empty = QWidget()
         pe = QVBoxLayout(page_empty)
         self.lbl_empty = QLabel(
-            "Добавьте ссылку на видео или перетащите файл в окно.\n\n"
-            "Поддерживаются YouTube и сотни других сайтов,\n"
-            "а также локальные видео- и аудиофайлы\n"
-            "(MP4, MKV, AVI, MOV, MP3, WAV, M4A и др.)")
+            tr("Добавьте ссылку на видео или перетащите файл в окно.\n\nПоддерживаются YouTube и сотни других сайтов,\nа также локальные видео- и аудиофайлы\n(MP4, MKV, AVI, MOV, MP3, WAV, M4A и др.)"))
         self.lbl_empty.setObjectName("hint")
         self.lbl_empty.setAlignment(Qt.AlignCenter)
         pe.addStretch(1)
@@ -225,7 +221,7 @@ class MainWindow(QMainWindow):
 
         self.tabs = QTabWidget()
         self.tbl = QTableWidget(0, 3)
-        self.tbl.setHorizontalHeaderLabels(["Время", "Спикер", "Текст"])
+        self.tbl.setHorizontalHeaderLabels([tr("Время"), tr("Спикер"), tr("Текст")])
         self.tbl.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
         self.tbl.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.tbl.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
@@ -233,25 +229,25 @@ class MainWindow(QMainWindow):
         self.tbl.setWordWrap(True)
         self.tbl.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.tbl.itemChanged.connect(self._on_cell_edited)
-        self.tabs.addTab(self.tbl, "Сегменты")
+        self.tabs.addTab(self.tbl, tr("Сегменты"))
 
         self.txt_view = QPlainTextEdit()
         self.txt_view.setReadOnly(True)
-        self.tabs.addTab(self.txt_view, "Текст")
+        self.tabs.addTab(self.txt_view, tr("Текст"))
         self.tabs.currentChanged.connect(self._refresh_text_tab)
         pr.addWidget(self.tabs, 1)
 
         exp = QHBoxLayout()
         for label, fmt in (("TXT", "txt"), ("SRT", "srt"), ("VTT", "vtt"),
                            ("DOCX", "docx"), ("PDF", "pdf")):
-            b = QPushButton(f"Экспорт {label}")
+            b = QPushButton(tr("Экспорт {}").format(label))
             b.clicked.connect(lambda _=False, f=fmt: self._export(f))
             exp.addWidget(b)
         exp.addStretch(1)
-        btn_tr = QPushButton("Перевести…")
+        btn_tr = QPushButton(tr("Перевести…"))
         btn_tr.clicked.connect(self._translate_current)
         exp.addWidget(btn_tr)
-        btn_copy = QPushButton("Копировать текст")
+        btn_copy = QPushButton(tr("Копировать текст"))
         btn_copy.clicked.connect(self._copy_all)
         exp.addWidget(btn_copy)
         pr.addLayout(exp)
@@ -279,11 +275,11 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
 
         # -- статус-бар с прогрессом
-        self.lbl_stage = QLabel("Готов к работе")
+        self.lbl_stage = QLabel(tr("Готов к работе"))
         self.bar = QProgressBar()
         self.bar.setFixedWidth(260)
         self.bar.setVisible(False)
-        self.btn_cancel = QPushButton("Отменить")
+        self.btn_cancel = QPushButton(tr("Отменить"))
         self.btn_cancel.setObjectName("danger")
         self.btn_cancel.setVisible(False)
         self.btn_cancel.clicked.connect(self._cancel_active)
@@ -307,8 +303,7 @@ class MainWindow(QMainWindow):
         if not url:
             return
         if not looks_like_url(url):
-            QMessageBox.warning(self, "Ссылка", "Это не похоже на ссылку. "
-                                "Пример: https://www.youtube.com/watch?v=…")
+            QMessageBox.warning(self, tr("Ссылка"), tr("Это не похоже на ссылку. Пример: https://www.youtube.com/watch?v=…"))
             return
         if self.chk_diarize.isChecked() and not self._diarize_ready():
             return
@@ -319,8 +314,8 @@ class MainWindow(QMainWindow):
     def _open_files(self):
         exts = " ".join(f"*{e}" for e in sorted(VIDEO_AUDIO_EXTS))
         paths, _ = QFileDialog.getOpenFileNames(
-            self, "Выберите видео или аудио", str(Path.home()),
-            f"Видео и аудио ({exts});;Все файлы (*.*)")
+            self, tr("Выберите видео или аудио"), str(Path.home()),
+            tr("Видео и аудио ({});;Все файлы (*.*)").format(exts))
         if paths and self.chk_diarize.isChecked() and not self._diarize_ready():
             return
         for p in paths:
@@ -330,17 +325,13 @@ class MainWindow(QMainWindow):
     def _diarize_ready(self) -> bool:
         if not diarize.is_available():
             QMessageBox.warning(
-                self, "Диаризация",
-                "Пакеты для определения спикеров не установлены.\n"
-                "Запустите install-diarization.bat (или pip install -r "
-                "requirements-diarization.txt), либо снимите галочку.")
+                self, tr("Диаризация"),
+                tr("Пакеты для определения спикеров не установлены.\nЗапустите install-diarization.bat (или pip install -r requirements-diarization.txt), либо снимите галочку."))
             return False
         if not self.cfg.hf_token.strip():
             QMessageBox.warning(
-                self, "Диаризация",
-                "Нужен токен Hugging Face — добавьте его в Настройках\n"
-                "(huggingface.co/settings/tokens, бесплатно)\n"
-                "и примите условия моделей pyannote.")
+                self, tr("Диаризация"),
+                tr("Нужен токен Hugging Face — добавьте его в Настройках\n(huggingface.co/settings/tokens, бесплатно)\nи примите условия моделей pyannote."))
             return False
         return True
 
@@ -380,7 +371,7 @@ class MainWindow(QMainWindow):
         if job is None:
             return self._start_next()
         self.active_job_id = jid
-        job.status, job.stage = "running", "Запуск…"
+        job.status, job.stage = "running", tr("Запуск…")
         self._update_item(job)
 
         w = PipelineWorker(job.spec, self.cfg)
@@ -400,7 +391,7 @@ class MainWindow(QMainWindow):
         self.bar.setVisible(busy)
         self.btn_cancel.setVisible(busy)
         if not busy:
-            self.lbl_stage.setText("Готов к работе")
+            self.lbl_stage.setText(tr("Готов к работе"))
 
     def _active_job(self) -> Optional[JobState]:
         return self.jobs.get(self.active_job_id) if self.active_job_id else None
@@ -435,13 +426,13 @@ class MainWindow(QMainWindow):
     def _on_failed(self, err: str):
         job = self._active_job()
         if job:
-            job.status, job.stage, job.error = "error", "Ошибка", err
+            job.status, job.stage, job.error = "error", tr("Ошибка"), err
             self._update_item(job)
 
     def _on_cancelled(self):
         job = self._active_job()
         if job:
-            job.status, job.stage = "cancelled", "Отменено"
+            job.status, job.stage = "cancelled", tr("Отменено")
             self._update_item(job)
 
     def _on_worker_finished(self):
@@ -456,17 +447,17 @@ class MainWindow(QMainWindow):
 
     @staticmethod
     def _done_summary(t: Transcript) -> str:
-        parts = [f"Готово · {ts_short(t.duration)}"]
+        parts = [tr("Готово · {}").format(ts_short(t.duration))]
         if t.language:
             parts.append(t.language)
         if t.has_speakers:
-            parts.append(f"{len(t.speakers)} спикера(ов)")
+            parts.append(tr("{} спикера(ов)").format(len(t.speakers)))
         return " · ".join(parts)
 
     def _cancel_active(self):
         if self.worker:
             self.worker.cancel()
-            self.lbl_stage.setText("Отмена…")
+            self.lbl_stage.setText(tr("Отмена…"))
 
     # ------------------------------------------------------------ отображение
 
@@ -484,22 +475,22 @@ class MainWindow(QMainWindow):
                 self._fill_result(job)
             self.stack.setCurrentIndex(1)
         elif job.status == "error":
-            self.lbl_status_big.setText(f"✗ Ошибка\n\n{job.error}")
+            self.lbl_status_big.setText(tr("✗ Ошибка\n\n{}").format(job.error))
             self.stack.setCurrentIndex(2)
         elif job.status == "cancelled":
-            self.lbl_status_big.setText("⊘ Задание отменено")
+            self.lbl_status_big.setText(tr("⊘ Задание отменено"))
             self.stack.setCurrentIndex(2)
         else:
-            state = "Выполняется" if job.status == "running" else "В очереди"
+            state = tr("Выполняется") if job.status == "running" else tr("В очереди")
             self.lbl_status_big.setText(f"{state}: {job.stage}")
             self.stack.setCurrentIndex(2)
 
     def _fill_result(self, job: JobState):
         t = job.transcript
         info = [f"<b>{t.title}</b>"]
-        meta = [ts_short(t.duration), f"{len(t.segments)} сегм."]
+        meta = [ts_short(t.duration), tr("{} сегм.").format(len(t.segments))]
         if t.language:
-            meta.append(f"язык: {t.language}")
+            meta.append(tr("язык: {}").format(t.language))
         if t.engine:
             meta.append(t.engine)
         info.append(" · ".join(meta))
@@ -545,32 +536,32 @@ class MainWindow(QMainWindow):
     def _export(self, fmt: str):
         job = self._selected_job()
         if not job or not job.transcript:
-            QMessageBox.information(self, "Экспорт", "Сначала выберите готовый транскрипт.")
+            QMessageBox.information(self, tr("Экспорт"), tr("Сначала выберите готовый транскрипт."))
             return
         t = job.transcript
         Path(self.cfg.output_dir).mkdir(parents=True, exist_ok=True)
         default = str(Path(self.cfg.output_dir) / f"{safe_filename(t.title)}.{fmt}")
         filters = {
-            "txt": "Текст (*.txt)", "srt": "Субтитры SRT (*.srt)",
-            "vtt": "Субтитры WebVTT (*.vtt)", "docx": "Документ Word (*.docx)",
+            "txt": tr("Текст (*.txt)"), "srt": tr("Субтитры SRT (*.srt)"),
+            "vtt": tr("Субтитры WebVTT (*.vtt)"), "docx": tr("Документ Word (*.docx)"),
             "pdf": "PDF (*.pdf)",
         }
-        path, _ = QFileDialog.getSaveFileName(self, "Сохранить как", default, filters[fmt])
+        path, _ = QFileDialog.getSaveFileName(self, tr("Сохранить как"), default, filters[fmt])
         if not path:
             return
         try:
             {"txt": export_txt, "srt": export_srt, "vtt": export_vtt,
              "docx": export_docx, "pdf": export_pdf}[fmt](t, path)
         except Exception as e:
-            QMessageBox.critical(self, "Экспорт", f"Не удалось сохранить файл:\n{e}")
+            QMessageBox.critical(self, tr("Экспорт"), tr("Не удалось сохранить файл:\n{}").format(e))
             return
-        self.lbl_stage.setText(f"Сохранено: {path}")
+        self.lbl_stage.setText(tr("Сохранено: {}").format(path))
         box = QMessageBox(self)
         box.setIcon(QMessageBox.Information)
-        box.setWindowTitle("Экспорт")
-        box.setText(f"Файл сохранён:\n{path}")
-        btn_open = box.addButton("Открыть папку", QMessageBox.ActionRole)
-        box.addButton("ОК", QMessageBox.AcceptRole)
+        box.setWindowTitle(tr("Экспорт"))
+        box.setText(tr("Файл сохранён:\n{}").format(path))
+        btn_open = box.addButton(tr("Открыть папку"), QMessageBox.ActionRole)
+        box.addButton(tr("ОК"), QMessageBox.AcceptRole)
         box.exec()
         if box.clickedButton() is btn_open:
             self._open_folder(str(Path(path).parent))
@@ -588,22 +579,22 @@ class MainWindow(QMainWindow):
         job = self._selected_job()
         if job and job.transcript:
             QGuiApplication.clipboard().setText(job.transcript.full_text())
-            self.lbl_stage.setText("Текст скопирован в буфер обмена.")
+            self.lbl_stage.setText(tr("Текст скопирован в буфер обмена."))
 
     # ------------------------------------------------------------- перевод
 
     def _translate_current(self):
         job = self._selected_job()
         if not job or not job.transcript:
-            QMessageBox.information(self, "Перевод", "Сначала выберите готовый транскрипт.")
+            QMessageBox.information(self, tr("Перевод"), tr("Сначала выберите готовый транскрипт."))
             return
         if self.worker is not None:
-            QMessageBox.information(self, "Перевод", "Дождитесь завершения текущего задания.")
+            QMessageBox.information(self, tr("Перевод"), tr("Дождитесь завершения текущего задания."))
             return
         key = self.cfg.active_api_key()
         if not key:
-            QMessageBox.warning(self, "Перевод",
-                                "Для перевода нужен API-ключ Groq или OpenAI — задайте его в Настройках.")
+            QMessageBox.warning(self, tr("Перевод"),
+                                tr("Для перевода нужен API-ключ Groq или OpenAI — задайте его в Настройках."))
             return
         dlg = TranslateDialog(self)
         if dlg.exec() != QDialog.Accepted:
@@ -614,7 +605,7 @@ class MainWindow(QMainWindow):
         jid = uuid.uuid4().hex[:8]
         new_job = JobState(id=jid, spec=job.spec,
                            name=f"{src.title} → {label}",
-                           status="running", stage=f"Перевод на {label}…")
+                           status="running", stage=tr("Перевод на {}…").format(label))
         self.jobs[jid] = new_job
         item = QListWidgetItem()
         item.setData(Qt.UserRole, jid)
@@ -648,12 +639,11 @@ class MainWindow(QMainWindow):
         from .. import licensing
         info = licensing.load_status()
         if info.licensed:
-            self.btn_license.setText("🔑 Активировано ✓")
+            self.btn_license.setText(tr("🔑 Активировано ✓"))
             self.btn_license.setToolTip(info.status_text)
         else:
-            self.btn_license.setText("🔑 Активировать")
-            self.btn_license.setToolTip("Пробный режим: первые 3 минуты каждого файла. "
-                                        "Нажмите для активации.")
+            self.btn_license.setText(tr("🔑 Активировать"))
+            self.btn_license.setToolTip(tr("Пробный режим: первые 3 минуты каждого файла. Нажмите для активации."))
 
     def _open_settings(self):
         dlg = SettingsDialog(self.cfg, self)
@@ -661,7 +651,7 @@ class MainWindow(QMainWindow):
             self._update_engine_label()
 
     def _update_engine_label(self):
-        self.lbl_engine.setText(f"Движок: {self.cfg.engine_label()}")
+        self.lbl_engine.setText(tr("Движок: {}").format(self.cfg.engine_label()))
 
     # drag & drop ---------------------------------------------------------
 
@@ -691,8 +681,8 @@ class MainWindow(QMainWindow):
     def closeEvent(self, e):
         if self.worker is not None:
             r = QMessageBox.question(
-                self, "Выход",
-                "Задание ещё выполняется. Прервать и выйти?",
+                self, tr("Выход"),
+                tr("Задание ещё выполняется. Прервать и выйти?"),
                 QMessageBox.Yes | QMessageBox.No)
             if r != QMessageBox.Yes:
                 e.ignore()

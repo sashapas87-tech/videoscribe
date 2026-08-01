@@ -25,6 +25,7 @@ import requests
 from ..core import chunking, ffmpeg_utils
 from ..core.models import AppError, JobCancelled, Segment, Transcript, Word
 from .base import EngineCallbacks, TranscriptionEngine
+from ..i18n import tr
 
 PROVIDERS = {
     "groq": {
@@ -96,12 +97,12 @@ def _is_daily_limit(body: str) -> bool:
 
 def _api_error(provider_label: str, status: int, body: str) -> AppError:
     if status == 401:
-        return AppError(f"{provider_label}: неверный API-ключ (401). Проверьте ключ в настройках.")
+        return AppError(tr("{}: неверный API-ключ (401). Проверьте ключ в настройках.").format(provider_label))
     if status == 429:
-        return AppError(f"{provider_label}: превышен лимит запросов (429). Подождите и повторите.\n{body[:300]}")
+        return AppError(tr("{}: превышен лимит запросов (429). Подождите и повторите.\n{}").format(provider_label, body[:300]))
     if status == 413:
-        return AppError(f"{provider_label}: файл слишком большой (413).")
-    return AppError(f"{provider_label}: ошибка API {status}:\n{body[:300]}")
+        return AppError(tr("{}: файл слишком большой (413).").format(provider_label))
+    return AppError(tr("{}: ошибка API {}:\n{}").format(provider_label, status, body[:300]))
 
 
 class CloudEngine(TranscriptionEngine):
@@ -109,9 +110,9 @@ class CloudEngine(TranscriptionEngine):
 
     def __init__(self, provider: str, api_key: str):
         if provider not in PROVIDERS:
-            raise AppError(f"Неизвестный провайдер: {provider}")
+            raise AppError(tr("Неизвестный провайдер: {}").format(provider))
         if not api_key.strip():
-            raise AppError("Не задан API-ключ облачного провайдера. Откройте Настройки и вставьте ключ.")
+            raise AppError(tr("Не задан API-ключ облачного провайдера. Откройте Настройки и вставьте ключ."))
         self.provider = provider
         self.meta = PROVIDERS[provider]
         self.api_key = api_key.strip()
@@ -128,9 +129,9 @@ class CloudEngine(TranscriptionEngine):
             if cb.is_cancelled():
                 raise JobCancelled()
             mm, ss = divmod(int(left) + 1, 60)
-            cb.message(f"Достигнут лимит {self.meta['label']} — ждём сброса квоты: {mm:02d}:{ss:02d}")
+            cb.message(tr("Достигнут лимит {} — ждём сброса квоты: {:02d}:{:02d}").format(self.meta['label'], mm, ss))
             time.sleep(min(1.0, left))
-        cb.message("Лимит снят, продолжаем…")
+        cb.message(tr("Лимит снят, продолжаем…"))
 
     def _post_audio(self, endpoint: str, mp3_path: str, data: dict,
                     cb: EngineCallbacks) -> dict:
@@ -157,7 +158,7 @@ class CloudEngine(TranscriptionEngine):
             except requests.RequestException as e:
                 net_errors += 1
                 if net_errors > 3:
-                    raise AppError(f"Нет соединения с {label}: {e}")
+                    raise AppError(tr("Нет соединения с {}: {}").format(label, e))
                 time.sleep(2 * net_errors)
                 continue
 
@@ -184,19 +185,14 @@ class CloudEngine(TranscriptionEngine):
             if resp.status_code == 429:
                 if _is_daily_limit(body):
                     raise AppError(
-                        f"{label}: исчерпан дневной лимит аудио (429).\n"
-                        "На бесплатном тарифе Groq можно распознать до 8 часов аудио "
-                        "в сутки. Продолжите завтра, подключите платный тариф "
-                        "или выберите локальный движок в настройках."
+                        tr("{}: исчерпан дневной лимит аудио (429).\nНа бесплатном тарифе Groq можно распознать до 8 часов аудио в сутки. Продолжите завтра, подключите платный тариф или выберите локальный движок в настройках.").format(label)
                     )
                 wait = parse_retry_after(resp)
                 wait = (wait + 2.0) if wait is not None else 60.0  # небольшой запас
                 if rate_waited + wait > MAX_RATE_WAIT_SEC:
                     mins = max(1, int(wait // 60))
                     raise AppError(
-                        f"{label}: превышен лимит запросов (429). Провайдер просит "
-                        f"подождать ещё ~{mins} мин — это слишком долго. "
-                        f"Повторите позже или подключите платный тариф.\n{body[:200]}"
+                        tr("{}: превышен лимит запросов (429). Провайдер просит подождать ещё ~{} мин — это слишком долго. Повторите позже или подключите платный тариф.\n{}").format(label, mins, body[:200])
                     )
                 self._wait_rate_limit(wait, cb)
                 rate_waited += wait
@@ -220,7 +216,7 @@ class CloudEngine(TranscriptionEngine):
 
         duration = ffmpeg_utils.get_duration(wav_path)
 
-        cb.stage("Подготовка аудио")
+        cb.stage(tr("Подготовка аудио"))
         cb.progress(None)
         silences = ffmpeg_utils.detect_silences(wav_path) if duration > chunking.MAX_CHUNK_SEC else []
         chunks = chunking.plan_chunks(duration, silences)
@@ -235,9 +231,9 @@ class CloudEngine(TranscriptionEngine):
             for i, (start, end) in enumerate(chunks):
                 if cb.is_cancelled():
                     raise JobCancelled()
-                cb.stage("Транскрибация (облако)")
+                cb.stage(tr("Транскрибация (облако)"))
                 if len(chunks) > 1:
-                    cb.message(f"Часть {i + 1} из {len(chunks)}…")
+                    cb.message(tr("Часть {} из {}…").format(i + 1, len(chunks)))
                 cb.progress(start / duration * 100 if duration else None)
 
                 mp3 = str(Path(tmp) / f"chunk_{i:03d}.mp3")
@@ -265,10 +261,9 @@ class CloudEngine(TranscriptionEngine):
                     done_min = int(start // 60)
                     segments.append(Segment(
                         start=start, end=start,
-                        text=f"⚠ Транскрибация прервана на части {i + 1} из {len(chunks)} "
-                             f"(распознано около {done_min} мин). Причина: {e}",
+                        text=tr("⚠ Транскрибация прервана на части {} из {} (распознано около {} мин). Причина: {}").format(i + 1, len(chunks), done_min, e),
                     ))
-                    cb.message("Ошибка облачного API — сохранён частичный результат.")
+                    cb.message(tr("Ошибка облачного API — сохранён частичный результат."))
                     break
 
                 if not detected_lang:

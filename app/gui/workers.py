@@ -11,6 +11,7 @@ from ..core.models import AppError, JobCancelled, JobSpec, Transcript
 from ..core.pipeline import run_job
 from ..engines.base import EngineCallbacks
 from ..translate import translate_transcript
+from ..i18n import tr
 
 
 class _BaseWorker(QThread):
@@ -47,7 +48,7 @@ class _BaseWorker(QThread):
         except AppError as e:
             self.sig_failed.emit(str(e))
         except Exception:
-            self.sig_failed.emit("Непредвиденная ошибка:\n" + traceback.format_exc(limit=5))
+            self.sig_failed.emit(tr("Непредвиденная ошибка:\n") + traceback.format_exc(limit=5))
 
 
 class PipelineWorker(_BaseWorker):

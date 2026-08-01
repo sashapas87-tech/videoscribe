@@ -17,6 +17,7 @@ import requests
 from .core.models import AppError, JobCancelled, Transcript
 from .engines.base import EngineCallbacks
 from .engines.cloud import PROVIDERS
+from .i18n import tr
 
 BATCH_SIZE = 35
 
@@ -58,12 +59,12 @@ def _chat(provider: str, api_key: str, messages: list, cb: EngineCallbacks) -> s
         if r.status_code == 200:
             return r.json()["choices"][0]["message"]["content"]
         if r.status_code == 401:
-            raise AppError(f"{meta['label']}: неверный API-ключ (401).")
+            raise AppError(tr("{}: неверный API-ключ (401).").format(meta['label']))
         if r.status_code in (429, 500, 502, 503) and attempt < 3:
             time.sleep(3 * (attempt + 1))
             continue
-        raise AppError(f"{meta['label']}: ошибка API {r.status_code}:\n{r.text[:300]}")
-    raise AppError(f"Нет соединения с {meta['label']}: {last}")
+        raise AppError(tr("{}: ошибка API {}:\n{}").format(meta['label'], r.status_code, r.text[:300]))
+    raise AppError(tr("Нет соединения с {}: {}").format(meta['label'], last))
 
 
 def _parse_json_array(text: str) -> list:
@@ -82,14 +83,14 @@ def translate_transcript(transcript: Transcript, target_lang: str,
     """Вернуть копию транскрипта с переведённым текстом сегментов."""
     cb = cb or EngineCallbacks()
     if not api_key.strip():
-        raise AppError("Для перевода нужен API-ключ (Groq или OpenAI) — задайте его в Настройках.")
+        raise AppError(tr("Для перевода нужен API-ключ (Groq или OpenAI) — задайте его в Настройках."))
 
     result = copy.deepcopy(transcript)
     for s in result.segments:
         s.words = []  # пословные таймкоды после перевода не имеют смысла
 
     total = len(result.segments)
-    cb.stage("Перевод")
+    cb.stage(tr("Перевод"))
     cb.progress(0.0)
 
     sys_prompt = (
@@ -115,15 +116,15 @@ def translate_transcript(transcript: Transcript, target_lang: str,
             items = _parse_json_array(content)
             m = {int(it["i"]): str(it["t"]) for it in items if "i" in it and "t" in it}
         except Exception:
-            raise AppError("Модель вернула некорректный ответ при переводе. Попробуйте ещё раз.")
+            raise AppError(tr("Модель вернула некорректный ответ при переводе. Попробуйте ещё раз."))
         for i, s in enumerate(batch):
             if i in m and m[i].strip():
                 s.text = m[i].strip()
         cb.progress(min(99.0, (offset + len(batch)) / total * 100))
-        cb.message(f"Переведено {min(offset + len(batch), total)} из {total} сегментов")
+        cb.message(tr("Переведено {} из {} сегментов").format(min(offset + len(batch), total), total))
 
-    result.title = f"{transcript.title} (перевод)"
+    result.title = transcript.title + tr(" (перевод)")
     result.language = None
-    result.engine = transcript.engine + " + перевод LLM"
+    result.engine = transcript.engine + tr(" + перевод LLM")
     cb.progress(100.0)
     return result

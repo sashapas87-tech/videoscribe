@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import List, Optional
 
 from ..core.models import Segment, Transcript
+from ..i18n import tr
 
 
 def ts_srt(t: float) -> str:
@@ -60,12 +61,12 @@ def meta_lines(t: Transcript) -> List[str]:
     """Строки метаданных для шапки документов."""
     lines = []
     if t.source:
-        lines.append(f"Источник: {t.source}")
+        lines.append(tr("Источник: {}").format(t.source))
     if t.duration:
-        lines.append(f"Длительность: {ts_short(t.duration)}")
+        lines.append(tr("Длительность: {}").format(ts_short(t.duration)))
     if t.language:
-        lines.append(f"Язык: {t.language}")
+        lines.append(tr("Язык: {}").format(t.language))
     if t.engine:
-        lines.append(f"Движок: {t.engine}")
-    lines.append(f"Создано: {t.created_at} — VideoScribe")
+        lines.append(tr("Движок: {}").format(t.engine))
+    lines.append(tr("Создано: {} — VideoScribe").format(t.created_at))
     return lines

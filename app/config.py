@@ -7,6 +7,8 @@ import sys
 from dataclasses import dataclass, asdict, fields
 from pathlib import Path
 
+from .i18n import tr
+
 APP_NAME = "VideoScribe"
 
 
@@ -64,6 +66,10 @@ class AppConfig:
     # Последние значения UI
     last_diarize: bool = False
     last_translate_en: bool = False
+    # Язык интерфейса: "auto" | "ru" | "uk" | "en"
+    ui_lang: str = "auto"
+    # Тема интерфейса: "dark" | "light"
+    ui_theme: str = "dark"
 
     def __post_init__(self):
         if not self.output_dir:
@@ -103,9 +109,9 @@ class AppConfig:
 
     def engine_label(self) -> str:
         if self.engine == "local":
-            return f"Локальный Whisper ({self.local_model})"
+            return tr("Локальный Whisper ({})").format(self.local_model)
         prov = "Groq" if self.cloud_provider == "groq" else "OpenAI"
-        return f"Облачный API ({prov})"
+        return tr("Облачный API ({})").format(prov)
 
 
 # Языки для выпадающих списков: (название, код)

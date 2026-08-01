@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Callable, List, Optional, Tuple
 
 from .models import AppError
+from ..i18n import tr
 
 ProgressCb = Optional[Callable[[float], None]]  # 0..100
 
@@ -50,8 +51,7 @@ def find_ffmpeg() -> str:
         return found
 
     raise AppError(
-        "Не найден ffmpeg. Установите зависимости (pip install -r requirements.txt) "
-        "или положите ffmpeg.exe в папку bin рядом с программой."
+        tr("Не найден ffmpeg. Установите зависимости (pip install -r requirements.txt) или положите ffmpeg.exe в папку bin рядом с программой.")
     )
 
 
@@ -71,7 +71,7 @@ def get_duration(path: str) -> float:
     text = proc.stderr.decode("utf-8", errors="replace")
     m = _DUR_RE.search(text)
     if not m:
-        raise AppError(f"Не удалось определить длительность файла: {Path(path).name}")
+        raise AppError(tr("Не удалось определить длительность файла: {}").format(Path(path).name))
     h, mi, s = int(m.group(1)), int(m.group(2)), float(m.group(3))
     return h * 3600 + mi * 60 + s
 
@@ -102,7 +102,7 @@ def _run_with_progress(args: List[str], total_duration: float, progress: Progres
     code = proc.wait()
     if code != 0:
         tail = "\n".join(stderr.strip().splitlines()[-5:])
-        raise AppError(f"Ошибка ffmpeg:\n{tail}")
+        raise AppError(tr("Ошибка ffmpeg:\n{}").format(tail))
 
 
 def extract_wav(src: str, dst: str, progress: ProgressCb = None,
@@ -117,7 +117,7 @@ def extract_wav(src: str, dst: str, progress: ProgressCb = None,
     ]
     _run_with_progress(args, dur, progress, cancelled)
     if not Path(dst).is_file() or Path(dst).stat().st_size < 1000:
-        raise AppError("В файле не найдена аудиодорожка.")
+        raise AppError(tr("В файле не найдена аудиодорожка."))
 
 
 def trim_wav(src_wav: str, dst_wav: str, seconds: float) -> None:
@@ -130,7 +130,7 @@ def trim_wav(src_wav: str, dst_wav: str, seconds: float) -> None:
     proc = _run(args)
     if proc.returncode != 0:
         tail = "\n".join(proc.stderr.decode("utf-8", "replace").strip().splitlines()[-5:])
-        raise AppError(f"Ошибка обрезки аудио:\n{tail}")
+        raise AppError(tr("Ошибка обрезки аудио:\n{}").format(tail))
 
 
 def encode_chunk_mp3(src_wav: str, start: float, end: float, dst_mp3: str,
@@ -145,7 +145,7 @@ def encode_chunk_mp3(src_wav: str, start: float, end: float, dst_mp3: str,
     proc = _run(args)
     if proc.returncode != 0:
         tail = "\n".join(proc.stderr.decode("utf-8", "replace").strip().splitlines()[-5:])
-        raise AppError(f"Ошибка сжатия аудио:\n{tail}")
+        raise AppError(tr("Ошибка сжатия аудио:\n{}").format(tail))
 
 
 _SIL_START_RE = re.compile(r"silence_start:\s*([\d.]+)")

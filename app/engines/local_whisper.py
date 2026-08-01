@@ -11,6 +11,7 @@ from typing import Optional
 from ..config import models_dir
 from ..core.models import AppError, JobCancelled, Segment, Transcript, Word
 from .base import EngineCallbacks, TranscriptionEngine
+from ..i18n import tr
 
 log = logging.getLogger(__name__)
 
@@ -50,13 +51,12 @@ class LocalWhisperEngine(TranscriptionEngine):
         try:
             from faster_whisper import WhisperModel  # type: ignore
         except ImportError:
-            raise AppError("Не установлен faster-whisper. Выполните: pip install -r requirements.txt")
+            raise AppError(tr("Не установлен faster-whisper. Выполните: pip install -r requirements.txt"))
 
         compute = "float16" if device == "cuda" else "int8"
-        cb.stage("Загрузка модели")
+        cb.stage(tr("Загрузка модели"))
         cb.progress(None)
-        cb.message(f"Модель {self.model_name} ({device}). При первом запуске "
-                   f"модель скачивается — это может занять время.")
+        cb.message(tr("Модель {} ({}). При первом запуске модель скачивается — это может занять время.").format(self.model_name, device))
         try:
             self._model = WhisperModel(
                 self.model_name,
@@ -68,7 +68,7 @@ class LocalWhisperEngine(TranscriptionEngine):
             if device == "cuda":
                 # Нет CUDA/cuDNN — откатываемся на CPU
                 log.warning("CUDA недоступна (%s), переключаюсь на CPU", e)
-                cb.message("GPU недоступен, использую CPU…")
+                cb.message(tr("GPU недоступен, использую CPU…"))
                 self._model = WhisperModel(
                     self.model_name, device="cpu", compute_type="int8",
                     download_root=str(models_dir()),
@@ -77,9 +77,8 @@ class LocalWhisperEngine(TranscriptionEngine):
             else:
                 txt = str(e)
                 if "Connection" in txt or "connect" in txt.lower() or "resolve" in txt.lower():
-                    raise AppError("Не удалось скачать модель: нет доступа к huggingface.co. "
-                                   "Проверьте интернет и повторите.")
-                raise AppError(f"Не удалось загрузить модель {self.model_name}:\n{txt[:400]}")
+                    raise AppError(tr("Не удалось скачать модель: нет доступа к huggingface.co. Проверьте интернет и повторите."))
+                raise AppError(tr("Не удалось загрузить модель {}:\n{}").format(self.model_name, txt[:400]))
         self._loaded_key = (self.model_name, device)
         return self._model
 
@@ -92,7 +91,7 @@ class LocalWhisperEngine(TranscriptionEngine):
         cb = cb or EngineCallbacks()
         model = self._load_model(cb)
 
-        cb.stage("Транскрибация")
+        cb.stage(tr("Транскрибация"))
         cb.progress(0.0)
 
         try:
@@ -106,7 +105,7 @@ class LocalWhisperEngine(TranscriptionEngine):
                 vad_parameters={"min_silence_duration_ms": 500},
             )
         except Exception as e:
-            raise AppError(f"Ошибка транскрибации:\n{str(e)[:400]}")
+            raise AppError(tr("Ошибка транскрибации:\n{}").format(str(e)[:400]))
 
         total = float(info.duration or 0)
         segments = []
@@ -126,12 +125,13 @@ class LocalWhisperEngine(TranscriptionEngine):
                     cb.progress(min(99.0, float(s.end) / total * 100))
                     mm, ss = divmod(int(s.end), 60)
                     hh, mm = divmod(mm, 60)
-                    cb.message(f"Распознано {hh:02d}:{mm:02d}:{ss:02d} из "
-                               f"{int(total)//3600:02d}:{int(total)%3600//60:02d}:{int(total)%60:02d}")
+                    done_ts = f"{hh:02d}:{mm:02d}:{ss:02d}"
+                    total_ts = f"{int(total)//3600:02d}:{int(total)%3600//60:02d}:{int(total)%60:02d}"
+                    cb.message(tr("Распознано {} из {}").format(done_ts, total_ts))
         except JobCancelled:
             raise
         except Exception as e:
-            raise AppError(f"Ошибка при распознавании:\n{str(e)[:400]}")
+            raise AppError(tr("Ошибка при распознавании:\n{}").format(str(e)[:400]))
 
         cb.progress(100.0)
         lang = "en" if task == "translate" else (info.language or language)

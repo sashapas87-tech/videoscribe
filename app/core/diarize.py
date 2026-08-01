@@ -13,6 +13,7 @@ from typing import List, Optional, Tuple
 from ..config import models_dir
 from ..core.models import AppError, Segment, Transcript
 from ..engines.base import EngineCallbacks
+from ..i18n import tr
 
 Turn = Tuple[float, float, str]  # (start, end, raw_label)
 
@@ -36,21 +37,19 @@ def run_diarization(wav_path: str, hf_token: str,
     cb = cb or EngineCallbacks()
     if not is_available():
         raise AppError(
-            "Для определения спикеров нужны пакеты torch и pyannote.audio.\n"
-            "Установите их: pip install -r requirements-diarization.txt"
+            tr("Для определения спикеров нужны пакеты torch и pyannote.audio.\nУстановите их: pip install -r requirements-diarization.txt")
         )
     if not hf_token.strip():
         raise AppError(
-            "Для определения спикеров нужен токен Hugging Face (бесплатно).\n"
-            "Добавьте его в Настройках и примите условия моделей pyannote."
+            tr("Для определения спикеров нужен токен Hugging Face (бесплатно).\nДобавьте его в Настройках и примите условия моделей pyannote.")
         )
 
     import torch  # type: ignore
     from pyannote.audio import Pipeline  # type: ignore
 
-    cb.stage("Диаризация")
+    cb.stage(tr("Диаризация"))
     cb.progress(None)
-    cb.message("Загрузка модели диаризации (при первом запуске скачивается ~1 ГБ)…")
+    cb.message(tr("Загрузка модели диаризации (при первом запуске скачивается ~1 ГБ)…"))
 
     token = hf_token.strip()
     pipe = _pipeline_cache.get(token)
@@ -65,18 +64,12 @@ def run_diarization(wav_path: str, hf_token: str,
             txt = str(e)
             if "401" in txt or "403" in txt or "gated" in txt.lower() or "access" in txt.lower():
                 raise AppError(
-                    "Hugging Face не принял токен или не приняты условия моделей.\n"
-                    "1) Проверьте токен в Настройках.\n"
-                    "2) Примите условия на страницах:\n"
-                    "   huggingface.co/pyannote/speaker-diarization-3.1\n"
-                    "   huggingface.co/pyannote/segmentation-3.0"
+                    tr("Hugging Face не принял токен или не приняты условия моделей.\n1) Проверьте токен в Настройках.\n2) Примите условия на страницах:\n   huggingface.co/pyannote/speaker-diarization-3.1\n   huggingface.co/pyannote/segmentation-3.0")
                 )
-            raise AppError(f"Не удалось загрузить модель диаризации:\n{txt[:400]}")
+            raise AppError(tr("Не удалось загрузить модель диаризации:\n{}").format(txt[:400]))
         if pipe is None:
             raise AppError(
-                "Hugging Face вернул пустую модель. Скорее всего, не приняты условия "
-                "использования pyannote/speaker-diarization-3.1 — откройте страницу модели "
-                "и нажмите 'Agree and access repository'."
+                tr("Hugging Face вернул пустую модель. Скорее всего, не приняты условия использования pyannote/speaker-diarization-3.1 — откройте страницу модели и нажмите 'Agree and access repository'.")
             )
         if torch.cuda.is_available():
             try:
@@ -88,16 +81,16 @@ def run_diarization(wav_path: str, hf_token: str,
     def hook(step_name, step_artifact, file=None, total=None, completed=None):
         if completed is not None and total:
             cb.progress(min(99.0, completed / total * 100))
-        cb.message(f"Диаризация: {step_name}")
+        cb.message(tr("Диаризация: {}").format(step_name))
 
-    cb.message("Анализ спикеров…")
+    cb.message(tr("Анализ спикеров…"))
     try:
         kwargs = {}
         if num_speakers:
             kwargs["num_speakers"] = int(num_speakers)
         annotation = pipe(wav_path, hook=hook, **kwargs)
     except Exception as e:
-        raise AppError(f"Ошибка диаризации:\n{str(e)[:400]}")
+        raise AppError(tr("Ошибка диаризации:\n{}").format(str(e)[:400]))
 
     turns: List[Turn] = []
     for turn, _, label in annotation.itertracks(yield_label=True):
@@ -196,7 +189,7 @@ def merge_speakers(transcript: Transcript, turns: List[Turn]) -> Transcript:
     mapping = {}
     for s in new_segments:
         if s.speaker and s.speaker not in mapping:
-            mapping[s.speaker] = f"Спикер {len(mapping) + 1}"
+            mapping[s.speaker] = tr("Спикер {}").format(len(mapping) + 1)
     for s in new_segments:
         if s.speaker:
             s.speaker = mapping[s.speaker]

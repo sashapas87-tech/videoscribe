@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Callable, Optional, Tuple
 
 from .models import AppError, JobCancelled
+from ..i18n import tr
 
 VIDEO_AUDIO_EXTS = {
     ".mp4", ".mkv", ".avi", ".mov", ".webm", ".wmv", ".flv", ".m4v", ".ts", ".3gp",
@@ -40,7 +41,7 @@ def download_audio(url: str, dest_dir: str,
     try:
         import yt_dlp  # type: ignore
     except ImportError:
-        raise AppError("Не установлен yt-dlp. Выполните: pip install -r requirements.txt")
+        raise AppError(tr("Не установлен yt-dlp. Выполните: pip install -r requirements.txt"))
 
     dest = Path(dest_dir)
     dest.mkdir(parents=True, exist_ok=True)
@@ -69,17 +70,17 @@ def download_audio(url: str, dest_dir: str,
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             if message:
-                message("Получение информации о видео…")
+                message(tr("Получение информации о видео…"))
             info = ydl.extract_info(url, download=False)
             if info.get("_type") == "playlist":
                 entries = info.get("entries") or []
                 if not entries:
-                    raise AppError("По ссылке не найдено ни одного видео.")
+                    raise AppError(tr("По ссылке не найдено ни одного видео."))
                 info = entries[0]
             title = info.get("title") or "video"
             duration = float(info.get("duration") or 0)
             if message:
-                message(f"Скачивание: {title}")
+                message(tr("Скачивание: {}").format(title))
             info = ydl.extract_info(url, download=True)
             if info.get("_type") == "playlist":
                 info = (info.get("entries") or [info])[0]
@@ -94,26 +95,25 @@ def download_audio(url: str, dest_dir: str,
             raise JobCancelled()
         low = txt.lower()
         if "private video" in low or "this video is private" in low:
-            raise AppError("Видео приватное — доступ по этой ссылке закрыт.")
+            raise AppError(tr("Видео приватное — доступ по этой ссылке закрыт."))
         if "confirm your age" in low or "age-restricted" in low or "age restricted" in low:
-            raise AppError("Видео с возрастным ограничением — YouTube требует вход в аккаунт.")
+            raise AppError(tr("Видео с возрастным ограничением — YouTube требует вход в аккаунт."))
         if "not a bot" in low or "sign in to confirm" in low:
-            raise AppError("YouTube запросил антибот-проверку. Подождите немного и повторите, "
-                           "либо скачайте видео вручную и откройте его как файл.")
+            raise AppError(tr("YouTube запросил антибот-проверку. Подождите немного и повторите, либо скачайте видео вручную и откройте его как файл."))
         if "video unavailable" in low or "removed" in low:
-            raise AppError("Видео недоступно или удалено.")
+            raise AppError(tr("Видео недоступно или удалено."))
         if "unsupported url" in low:
-            raise AppError("Ссылка не распознана. Проверьте адрес видео.")
+            raise AppError(tr("Ссылка не распознана. Проверьте адрес видео."))
         if ("getaddrinfo" in low or "resolve" in low or "connection" in low
                 or "timed out" in low or "network" in low):
-            raise AppError("Нет соединения с сервером. Проверьте интернет.")
-        raise AppError(f"Не удалось скачать видео:\n{txt[:400]}")
+            raise AppError(tr("Нет соединения с сервером. Проверьте интернет."))
+        raise AppError(tr("Не удалось скачать видео:\n{}").format(txt[:400]))
 
     if not Path(path).is_file():
         # yt-dlp мог сменить расширение
         found = list(dest.glob("source.*"))
         if not found:
-            raise AppError("Скачивание завершилось, но файл не найден.")
+            raise AppError(tr("Скачивание завершилось, но файл не найден."))
         path = str(found[0])
 
     return path, title, duration

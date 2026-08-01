@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 from .config import app_data_dir
+from .i18n import tr
 
 # --- Открытый ключ продавца (безопасно хранить в открытом виде) -----------
 PUBLIC_KEY_B64 = "kFZ/wTOXSAdhMeDIN4LZHtJsMAmjJm3Slp+sBHJOkbI="
@@ -86,37 +87,37 @@ class LicenseInfo:
     def status_text(self) -> str:
         if self.licensed:
             who = f" · {self.name}" if self.name else ""
-            exp = f" · до {self.expiry}" if self.expiry else " · бессрочно"
-            return f"Активировано{who}{exp}"
-        return "Пробный режим (первые 3 минуты каждого файла)"
+            exp = tr(" · до {}").format(self.expiry) if self.expiry else tr(" · бессрочно")
+            return tr("Активировано") + who + exp
+        return tr("Пробный режим (первые 3 минуты каждого файла)")
 
 
 def _verify_token(token: str, machine_id: str) -> LicenseInfo:
     """Проверить подпись и привязку ключа к этому компьютеру."""
     token = (token or "").strip().replace("\n", "").replace("\r", "").replace(" ", "")
     if not token or "." not in token:
-        return LicenseInfo(False, machine_id, error="Пустой или неполный ключ.")
+        return LicenseInfo(False, machine_id, error=tr("Пустой или неполный ключ."))
     try:
         from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
         from cryptography.exceptions import InvalidSignature
     except ImportError:
         return LicenseInfo(False, machine_id,
-                           error="Не установлен пакет cryptography (pip install -r requirements.txt).")
+                           error=tr("Не установлен пакет cryptography (pip install -r requirements.txt)."))
 
     try:
         payload_b64, sig_b64 = token.split(".", 1)
         payload = _b64url_decode(payload_b64)
         signature = _b64url_decode(sig_b64)
     except Exception:
-        return LicenseInfo(False, machine_id, error="Ключ повреждён или скопирован не полностью.")
+        return LicenseInfo(False, machine_id, error=tr("Ключ повреждён или скопирован не полностью."))
 
     try:
         pub = Ed25519PublicKey.from_public_bytes(base64.b64decode(PUBLIC_KEY_B64))
         pub.verify(signature, payload)
     except InvalidSignature:
-        return LicenseInfo(False, machine_id, error="Подпись ключа неверна — ключ поддельный или испорчен.")
+        return LicenseInfo(False, machine_id, error=tr("Подпись ключа неверна — ключ поддельный или испорчен."))
     except Exception as e:
-        return LicenseInfo(False, machine_id, error=f"Не удалось проверить ключ: {e}")
+        return LicenseInfo(False, machine_id, error=tr("Не удалось проверить ключ: {}").format(e))
 
     try:
         fields = payload.decode("utf-8").split("|")
@@ -124,18 +125,17 @@ def _verify_token(token: str, machine_id: str) -> LicenseInfo:
         name = fields[1] if len(fields) > 1 else ""
         expiry = fields[3] if len(fields) > 3 else ""
     except Exception:
-        return LicenseInfo(False, machine_id, error="Ключ имеет неизвестный формат.")
+        return LicenseInfo(False, machine_id, error=tr("Ключ имеет неизвестный формат."))
 
     if lic_machine != machine_id:
         return LicenseInfo(False, machine_id,
-                           error="Этот ключ выдан для другого компьютера.\n"
-                                 "Ключ действует только на том ПК, чей Machine ID был указан при покупке.")
+                           error=tr("Этот ключ выдан для другого компьютера.\nКлюч действует только на том ПК, чей Machine ID был указан при покупке."))
 
     if expiry:
         try:
             if date.fromisoformat(expiry) < date.today():
                 return LicenseInfo(False, machine_id, name=name, expiry=expiry,
-                                   error=f"Срок действия ключа истёк ({expiry}).")
+                                   error=tr("Срок действия ключа истёк ({}).").format(expiry))
         except ValueError:
             pass
 
@@ -169,7 +169,7 @@ def activate(token: str) -> Tuple[bool, LicenseInfo]:
         try:
             _license_path().write_text(token.strip(), encoding="utf-8")
         except Exception as e:
-            return False, LicenseInfo(False, mid, error=f"Ключ верный, но не удалось сохранить: {e}")
+            return False, LicenseInfo(False, mid, error=tr("Ключ верный, но не удалось сохранить: {}").format(e))
     return info.licensed, info
 
 

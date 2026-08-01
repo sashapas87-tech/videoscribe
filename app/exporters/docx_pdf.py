@@ -6,6 +6,7 @@ from pathlib import Path
 from ..config import assets_dir
 from ..core.models import AppError, Transcript
 from .common import group_blocks, meta_lines, ts_short
+from ..i18n import tr
 
 
 def export_docx(t: Transcript, path: str) -> None:
@@ -13,10 +14,10 @@ def export_docx(t: Transcript, path: str) -> None:
         import docx  # type: ignore
         from docx.shared import Pt, RGBColor  # type: ignore
     except ImportError:
-        raise AppError("Не установлен python-docx. Выполните: pip install -r requirements.txt")
+        raise AppError(tr("Не установлен python-docx. Выполните: pip install -r requirements.txt"))
 
     doc = docx.Document()
-    doc.add_heading(t.title or "Транскрипт", level=1)
+    doc.add_heading(t.title or tr("Транскрипт"), level=1)
 
     meta = doc.add_paragraph()
     run = meta.add_run("\n".join(meta_lines(t)))
@@ -36,13 +37,13 @@ def export_pdf(t: Transcript, path: str) -> None:
     try:
         from fpdf import FPDF  # type: ignore
     except ImportError:
-        raise AppError("Не установлен fpdf2. Выполните: pip install -r requirements.txt")
+        raise AppError(tr("Не установлен fpdf2. Выполните: pip install -r requirements.txt"))
 
     fonts = assets_dir() / "fonts"
     regular = fonts / "DejaVuSans.ttf"
     bold = fonts / "DejaVuSans-Bold.ttf"
     if not regular.is_file():
-        raise AppError("Не найден шрифт assets/fonts/DejaVuSans.ttf для PDF.")
+        raise AppError(tr("Не найден шрифт assets/fonts/DejaVuSans.ttf для PDF."))
 
     pdf = FPDF(format="A4")
     pdf.set_auto_page_break(auto=True, margin=18)
@@ -53,7 +54,7 @@ def export_pdf(t: Transcript, path: str) -> None:
     epw = pdf.w - pdf.l_margin - pdf.r_margin
 
     pdf.set_font("DejaVu", "B", 15)
-    pdf.multi_cell(epw, 8, t.title or "Транскрипт")
+    pdf.multi_cell(epw, 8, t.title or tr("Транскрипт"))
     pdf.ln(1)
 
     pdf.set_font("DejaVu", "", 8)
