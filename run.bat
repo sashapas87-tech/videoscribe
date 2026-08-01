@@ -1,30 +1,29 @@
 @echo off
-rem VideoScribe - run from source (creates venv on first run)
+chcp 65001 >nul
+rem VideoScribe — запуск из исходников. Первая установка библиотек: install.bat
 cd /d "%~dp0"
 
-where py >nul 2>&1
-if %errorlevel%==0 (set "PY=py -3") else (set "PY=python")
+if exist ".venv\Scripts\pythonw.exe" goto :run
+if exist ".venv\Scripts\python.exe" goto :runconsole
 
-%PY% --version >nul 2>&1
-if errorlevel 1 (
-    echo Python not found. Install Python 3.10+ from https://www.python.org/downloads/
-    echo IMPORTANT: check "Add python.exe to PATH" during installation.
-    pause
-    exit /b 1
-)
+if not exist "install.bat" goto :noinstall
+echo Библиотеки ещё не установлены — запускаю установщик...
+call install.bat
+if exist ".venv\Scripts\pythonw.exe" goto :run
+exit /b 1
 
-if not exist ".venv\Scripts\python.exe" (
-    echo Creating virtual environment...
-    %PY% -m venv .venv || (echo Failed to create venv & pause & exit /b 1)
-    call ".venv\Scripts\activate.bat"
-    python -m pip install --upgrade pip
-    echo Installing dependencies (first run only, several minutes)...
-    pip install -r requirements.txt || (echo Dependency install failed & pause & exit /b 1)
-) else (
-    call ".venv\Scripts\activate.bat"
-)
-
-python scripts\prepare_assets.py --quiet
-
-start "" /b pythonw main.py 2>nul || python main.py
+:run
+".venv\Scripts\python.exe" scripts\prepare_assets.py --quiet >nul 2>&1
+start "" ".venv\Scripts\pythonw.exe" main.py
 exit /b 0
+
+:runconsole
+".venv\Scripts\python.exe" scripts\prepare_assets.py --quiet >nul 2>&1
+".venv\Scripts\python.exe" main.py
+exit /b 0
+
+:noinstall
+echo Библиотеки не установлены, а установщик install.bat не найден рядом.
+echo Скачайте install.bat, положите в эту папку и запустите его.
+pause
+exit /b 1
